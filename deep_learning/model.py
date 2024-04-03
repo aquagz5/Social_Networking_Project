@@ -15,6 +15,7 @@ class GCNLinkPrediction(nn.Module):
         x = F.relu(x)
         x = F.dropout(x, p=0.3, training=self.training)
         x = self.conv2(x, edge_index)
+        x = F.normalize(x, p=2, dim=1) # Normalize node embeddings
         return x
 
 def score_edges(embeddings, edge_index):
@@ -27,19 +28,60 @@ def score_edges(embeddings, edge_index):
 def compute_loss(pos_pred, neg_pred):
     pos_loss = -torch.log(torch.sigmoid(pos_pred)).mean()  # Binary cross-entropy loss for positive edges
     neg_loss = -torch.log(1 - torch.sigmoid(neg_pred)).mean()  # Binary cross-entropy loss for negative edges
-    loss = pos_loss + neg_loss
+    loss = (pos_loss + neg_loss) / 2.0
     return loss
 
-def get_graph_recommendations(embeddings, edge_index):
-    # Compute scores for all pairs of nodes using matrix multiplication
-    scores = torch.matmul(embeddings, embeddings.t())  # Matrix multiplication dot product to compute scores
-    # Diagonal elements represent self-similarity, which should be set to negative infinity
-    scores.fill_diagonal_(float('-inf'))
-    # Set similarity scores between connected nodes to negative infinity
-    for src, dest in edge_index.t().tolist():
-        scores[src, dest] = float('-inf')
-        scores[dest, src] = float('-inf')
-    return scores
+def get_graph_recommendations(embeddings, edge_index, batch_size=1000):
+    """Compute recommendations for entire graph in batches"""
+    # How many batches are required?
+    num_nodes = embeddings.size(0)
+    num_batches = (num_nodes + batch_size - 1) // batch_size
+
+    print(f'Required batches: {num_batches}')
+
+    # Initialize an empty matrix to store scores
+    # scores = torch.zeros(num_nodes, num_nodes)
+    # print('Scores iniitalized with zeros.')
+
+    # Initialize an empty list to store scores
+    recommendations_list = []
+
+    # Perform matrix multiplication in batches
+    for i in range(num_batches):
+        print(f'Starting batch {i}')
+        start_idx = i * batch_size
+        end_idx = min((i + 1) * batch_size, num_nodes)
+        batch_embeddings = embeddings[start_idx:end_idx]
+
+        # Compute scores for the current batch
+        batch_scores = torch.matmul(batch_embeddings, embeddings.t())
+
+        # Diagonal elements represent self-recommendations, which should be set to -inf
+        batch_scores.fill_diagonal_(float('-inf'))
+
+        # Set recommendations for connected nodes within the batch to -inf
+        edge_list = edge_index.t().tolist()
+        edge_list_filtered = [[src, dest] for src, dest in edge_list if ((src >= start_idx) and (src < end_idx))]
+        for src, dest in edge_list_filtered:
+            batch_scores[src - start_idx, dest] = float('-inf')
+
+        # Sort scores for each row and get top 10 column indices
+        top_10_indices = torch.argsort(batch_scores, dim=1, descending=True)[:, :10]
+
+        # Append top 10 recommendations to the list
+        recommendations_list.append(top_10_indices)
+
+    # Concatenate batch_scores along the rows to form the final scores matrix
+    recommendations = torch.cat(recommendations_list, dim=0)
+
+    # # Diagonal elements represent self-similarity, which should be set to negative infinity
+    # scores.fill_diagonal_(float('-inf'))
+    # # Set similarity scores between connected nodes to negative infinity
+    # for src, dest in edge_index.t().tolist():
+    #     scores[src, dest] = float('-inf')
+    #     scores[dest, src] = float('-inf')
+
+    return recommendations
 
 # ========== Adjusting scoring (pairwise node similarity = the edge score) to be MLP / NN instead of just using dot product ==========
 # import torch.nn as nn

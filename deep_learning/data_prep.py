@@ -2,6 +2,7 @@ import pandas as pd
 from torch_geometric.data import Data
 import torch
 import pickle
+import numpy as np
 
 class UserIdMapper:
     """Convert user hash to integer for PyTorch Geometric data object"""
@@ -58,4 +59,19 @@ def create_torch_data_object(df_edges, df_node_features, index_cols):
     # Prepare Data object
     data = Data(x=node_features_sorted, edge_index=edge_index)
     return index, data
+
+# Define a function to split edge indices into train and test sets
+def split_edges(edge_index, train_ratio=0.65, val_ratio=0.20):
+    num_edges = edge_index.shape[1]
+    num_train = int(num_edges * train_ratio)
+    num_val = int(num_edges * val_ratio)
+
+    # Randomly permute edges
+    indices = np.random.permutation(num_edges)
+
+    # Create sets
+    train_indices = indices[:num_train]
+    val_indices = indices[num_train:num_train+num_val]
+    test_indices = indices[num_train+num_val:]
+    return edge_index[:, train_indices], edge_index[:, val_indices], edge_index[:, test_indices]
 
