@@ -10,7 +10,7 @@ class UserIdMapper:
         self.dict_path = dict_path
         if dict_path:
             self.load_from_dict()
-        elif unique_users:
+        elif unique_users is not None:
             self.user_to_id = {user: idx for idx, user in enumerate(sorted(unique_users))}
             self.id_to_user = {idx: user for user, idx in self.user_to_id.items()}
         else:

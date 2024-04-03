@@ -30,6 +30,17 @@ def compute_loss(pos_pred, neg_pred):
     loss = pos_loss + neg_loss
     return loss
 
+def get_graph_recommendations(embeddings, edge_index):
+    # Compute scores for all pairs of nodes using matrix multiplication
+    scores = torch.matmul(embeddings, embeddings.t())  # Matrix multiplication dot product to compute scores
+    # Diagonal elements represent self-similarity, which should be set to negative infinity
+    scores.fill_diagonal_(float('-inf'))
+    # Set similarity scores between connected nodes to negative infinity
+    for src, dest in edge_index.t().tolist():
+        scores[src, dest] = float('-inf')
+        scores[dest, src] = float('-inf')
+    return scores
+
 # ========== Adjusting scoring (pairwise node similarity = the edge score) to be MLP / NN instead of just using dot product ==========
 # import torch.nn as nn
 
