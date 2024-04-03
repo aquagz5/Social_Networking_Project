@@ -37,7 +37,7 @@ class UserIdMapper:
 def prepare_edge_index(df):
     """Create torch tensor the way Data object expects edge list"""
     df_copy = df.copy()[['target', 'source']].rename(columns={'source':'target', 'target':'source'})
-    df_combined = pd.concat([df, df_copy], axis=0)
+    df_combined = pd.concat([df, df_copy], axis=0).drop_duplicates()
     assert all(df_combined.groupby(['source', 'target']).size().unique()) == 1
     edge_index = torch.tensor(df_combined[['source', 'target']].values, dtype=torch.long).t().contiguous()
     return edge_index
