@@ -1,1 +1,1 @@
-{"model": "GCNLinkPrediction", "max_test_set_friend_count": 841, "num_test_set_users": 203374, "hit_ratio": 0.17991977634617723}
+{"model": "GCNLinkPrediction", "max_test_set_friend_count": 841, "num_test_set_users": 203374, "hit_ratio_sample_size": 10000, "hit_ratio": 0.18361120453562677}

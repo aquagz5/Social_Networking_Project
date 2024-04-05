@@ -16,6 +16,7 @@ model_name_dict = {
     'GCNLinkPrediction':GCNLinkPrediction
 }
 model_path = f'./deep_learning/models/{model_name}.pth'
+sample_size_for_hit_ratio=10000
 # Note: robust scaler still has a lot of large values after scaling (ex: some are -0.1, some are 557.1). Not sure if this would cause problems with gradient descent, maybe just minmax would be better???
 # Had to move all features to minmax to avoid INF training error. Large values ^^ are a problem...
 standardization_dict = {
@@ -77,7 +78,7 @@ with torch.no_grad():
 
 # Calculate hit ratio as a benchmark for each model
 # ASSUMES USING DOT PRODUCT FOR EDGE SCORE
-hit_ratio = hit_ratio(embeddings=node_embeddings, test_edge_index=test_set_edges)
+hit_ratio = hit_ratio(embeddings=node_embeddings, test_edge_index=test_set_edges, sample_size=sample_size_for_hit_ratio)
 print(f'Hit ratio: {hit_ratio}')
 
 # Create summary evaluation file
@@ -85,6 +86,7 @@ evaluation = {
     'model':model_name,
     'max_test_set_friend_count':max_count.item(),
     'num_test_set_users':len(unique_values),
+    'hit_ratio_sample_size':sample_size_for_hit_ratio,
     'hit_ratio':hit_ratio
 }
 
