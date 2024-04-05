@@ -33,63 +33,6 @@ def compute_loss(pos_pred, neg_pred):
     loss = (pos_loss + neg_loss) / 2.0
     return loss
 
-def get_graph_recommendations(embeddings, edge_index, batch_size=1000):
-    """Compute recommendations for entire graph in batches"""
-    # How many batches are required?
-    num_nodes = embeddings.size(0)
-    num_batches = (num_nodes + batch_size - 1) // batch_size
-
-    print(f'Required batches: {num_batches}')
-
-    # Initialize an empty matrix to store scores
-    # scores = torch.zeros(num_nodes, num_nodes)
-    # print('Scores iniitalized with zeros.')
-
-    # Initialize an empty list to store scores
-    recommendations_list = []
-
-    # Perform matrix multiplication in batches
-    for i in range(num_batches):
-        print(f'Starting batch {i}')
-        start_idx = i * batch_size
-        end_idx = min((i + 1) * batch_size, num_nodes)
-        batch_embeddings = embeddings[start_idx:end_idx]
-
-        # Compute scores for the current batch
-        batch_scores = torch.matmul(batch_embeddings, embeddings.t())
-
-
-        # Set recommendations for connected nodes within the batch to -inf
-        edge_list = edge_index.t().tolist()
-        edge_list_filtered = [[src, dest] for src, dest in edge_list if ((src >= start_idx) and (src < end_idx))]
-        for i, src_dest in edge_list_filtered:
-            batch_scores[src_dest[0] - start_idx, src_dest[1]] = float('-inf')
-            #batch_scores[i, start_idx+i] = float('-inf') # Self recommendation
-
-        # Sort scores for each row and get top 10 column indices
-        top_10_indices = torch.argsort(batch_scores, dim=1, descending=True)[:, :10]
-
-        # Append top 10 recommendations to the list
-        recommendations_list.append(top_10_indices)
-
-    # Concatenate batch_scores along the rows to form the final scores matrix
-    recommendations = torch.cat(recommendations_list, dim=0)
-
-    # # Diagonal elements represent self-similarity, which should be set to negative infinity
-    # scores.fill_diagonal_(float('-inf'))
-    # # Set similarity scores between connected nodes to negative infinity
-    # for src, dest in edge_index.t().tolist():
-    #     scores[src, dest] = float('-inf')
-    #     scores[dest, src] = float('-inf')
-
-    return recommendations
-
-
-
-
-
-
-
 def hit_ratio(embeddings, test_edge_index, sample_size=10000):
     print('Beginning hit ratio calculation...')
     # Find the uniqe users that are in the test set
@@ -154,23 +97,56 @@ def hit_ratio(embeddings, test_edge_index, sample_size=10000):
 
     return float(weighted_hit_ratio)
 
+# def get_graph_recommendations(embeddings, edge_index, batch_size=1000):
+#     """Compute recommendations for entire graph in batches"""
+#     # How many batches are required?
+#     num_nodes = embeddings.size(0)
+#     num_batches = (num_nodes + batch_size - 1) // batch_size
+
+#     print(f'Required batches: {num_batches}')
+
+#     # Initialize an empty matrix to store scores
+#     # scores = torch.zeros(num_nodes, num_nodes)
+#     # print('Scores iniitalized with zeros.')
+
+#     # Initialize an empty list to store scores
+#     recommendations_list = []
+
+#     # Perform matrix multiplication in batches
+#     for i in range(num_batches):
+#         print(f'Starting batch {i}')
+#         start_idx = i * batch_size
+#         end_idx = min((i + 1) * batch_size, num_nodes)
+#         batch_embeddings = embeddings[start_idx:end_idx]
+
+#         # Compute scores for the current batch
+#         batch_scores = torch.matmul(batch_embeddings, embeddings.t())
 
 
+#         # Set recommendations for connected nodes within the batch to -inf
+#         edge_list = edge_index.t().tolist()
+#         edge_list_filtered = [[src, dest] for src, dest in edge_list if ((src >= start_idx) and (src < end_idx))]
+#         for i, src_dest in edge_list_filtered:
+#             batch_scores[src_dest[0] - start_idx, src_dest[1]] = float('-inf')
+#             #batch_scores[i, start_idx+i] = float('-inf') # Self recommendation
 
+#         # Sort scores for each row and get top 10 column indices
+#         top_10_indices = torch.argsort(batch_scores, dim=1, descending=True)[:, :10]
 
+#         # Append top 10 recommendations to the list
+#         recommendations_list.append(top_10_indices)
 
+#     # Concatenate batch_scores along the rows to form the final scores matrix
+#     recommendations = torch.cat(recommendations_list, dim=0)
 
+#     # # Diagonal elements represent self-similarity, which should be set to negative infinity
+#     # scores.fill_diagonal_(float('-inf'))
+#     # # Set similarity scores between connected nodes to negative infinity
+#     # for src, dest in edge_index.t().tolist():
+#     #     scores[src, dest] = float('-inf')
+#     #     scores[dest, src] = float('-inf')
 
-
-
-
-
-
-
-
-
-
-
+#     return recommendations
 
 # ========== Adjusting scoring (pairwise node similarity = the edge score) to be MLP / NN instead of just using dot product ==========
 # import torch.nn as nn
