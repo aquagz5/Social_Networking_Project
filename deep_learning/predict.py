@@ -1,18 +1,16 @@
 import torch
 import pandas as pd
-from torch_geometric.utils import negative_sampling
-from model import GCNLinkPrediction, score_edges, compute_loss, get_graph_recommendations
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+from model import GCNLinkPrediction, hit_ratio
 import joblib
 from data_prep import UserIdMapper, create_torch_data_object
-import sys
+import json
 
 ############ Set user/model parameters ################
 ########################################################
 # User parameters
 preprocessing_dir = './deep_learning/preprocessing'
 model_name ='GCNLinkPrediction' # Swap out with any other model class/name we try (needs to be in model_dict below)
-output_recommendation_directory = './deep_learning/recommendations'
+evaluation_directory = './deep_learning/evaluation'
 index_cols = ['user_id']
 model_name_dict = {
     'GCNLinkPrediction':GCNLinkPrediction
@@ -49,8 +47,8 @@ standard_scaler = joblib.load(f'{preprocessing_dir}/standard_scaler.pkl')
 minmax_scaler = joblib.load(f'{preprocessing_dir}/minmax_scaler.pkl')
 
 # Apply standardization to node features
-df_node_features[standardization_dict['standard']] = standard_scaler.fit_transform(df_node_features[standardization_dict['standard']])
-df_node_features[standardization_dict['minmax']] = minmax_scaler.fit_transform(df_node_features[standardization_dict['minmax']])
+df_node_features[standardization_dict['standard']] = standard_scaler.transform(df_node_features[standardization_dict['standard']])
+df_node_features[standardization_dict['minmax']] = minmax_scaler.transform(df_node_features[standardization_dict['minmax']])
 
 # Create PTGeo Data object
 index, data = create_torch_data_object(df_edges=df_edges, df_node_features=df_node_features, index_cols=index_cols)
@@ -62,27 +60,33 @@ model = torch.load(model_path)
 model.to(device)
 model.eval()
 
+# Load test set edges
+test_set_edges = torch.load(f=f'{evaluation_directory}/test_edge_list.pt')
+# print(test_set_edges.size())
+# print(test_set_edges[0,:].unique().size()) # Too many people in test set, will need to take random sample of 1000 (plus the actual edges for that user)
+# Find the maximum count
+unique_values, counts = test_set_edges[0, :].unique(return_counts=True)
+max_count = counts.max()
+print(f'Maximum friend count in test set: {max_count.item()}\n')
+
 # Make predictions on entire graph
 with torch.no_grad():
     # Forward pass through model
     node_embeddings = model(data)
-    print(node_embeddings.size())
+    #print(node_embeddings.size())
 
-# Get matrix of similarity scores between all pairs of nodes
+# Calculate hit ratio as a benchmark for each model
 # ASSUMES USING DOT PRODUCT FOR EDGE SCORE
-print('Computing recommendations for each user...')
-graph_recommendations = get_graph_recommendations(embeddings=node_embeddings, edge_index=data.edge_index, batch_size=1000)
+hit_ratio = hit_ratio(embeddings=node_embeddings, test_edge_index=test_set_edges)
+print(f'Hit ratio: {hit_ratio}')
 
-print(graph_recommendations)
+# Create summary evaluation file
+evaluation = {
+    'model':model_name,
+    'max_test_set_friend_count':max_count.item(),
+    'num_test_set_users':len(unique_values),
+    'hit_ratio':hit_ratio
+}
 
-# Convert recommendations back into user hashes
-user_recommendations = pd.DataFrame(index=user_id_mapper.user_to_id.keys())
-print(user_recommendations)
-
-# Assign columns of pandas data frame to be the recommendation list for each user
-for i in range(graph_recommendations.size(1)):
-    user_recommendations[f'rec{i+1}'] = graph_recommendations[:, i]
-    user_recommendations[f'rec{i+1}'] = user_recommendations[f'rec{i+1}'].apply(lambda id: user_id_mapper.get_original_user(id))
-
-# Save recommendation data frame
-user_recommendations.to_csv(f'{output_recommendation_directory}/{model_name}_recommendations.csv', header=True, index=True)
+with open(f'{evaluation_directory}/{model_name}_eval.json', "w") as f:
+    json.dump(evaluation, f)

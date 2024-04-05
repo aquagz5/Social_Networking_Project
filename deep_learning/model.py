@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
+import random
+import numpy as np
 
 class GCNLinkPrediction(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -56,14 +58,13 @@ def get_graph_recommendations(embeddings, edge_index, batch_size=1000):
         # Compute scores for the current batch
         batch_scores = torch.matmul(batch_embeddings, embeddings.t())
 
-        # Diagonal elements represent self-recommendations, which should be set to -inf
-        batch_scores.fill_diagonal_(float('-inf'))
 
         # Set recommendations for connected nodes within the batch to -inf
         edge_list = edge_index.t().tolist()
         edge_list_filtered = [[src, dest] for src, dest in edge_list if ((src >= start_idx) and (src < end_idx))]
-        for src, dest in edge_list_filtered:
-            batch_scores[src - start_idx, dest] = float('-inf')
+        for i, src_dest in edge_list_filtered:
+            batch_scores[src_dest[0] - start_idx, src_dest[1]] = float('-inf')
+            #batch_scores[i, start_idx+i] = float('-inf') # Self recommendation
 
         # Sort scores for each row and get top 10 column indices
         top_10_indices = torch.argsort(batch_scores, dim=1, descending=True)[:, :10]
@@ -82,6 +83,94 @@ def get_graph_recommendations(embeddings, edge_index, batch_size=1000):
     #     scores[dest, src] = float('-inf')
 
     return recommendations
+
+
+
+
+
+
+
+def hit_ratio(embeddings, test_edge_index, sample_size=10000):
+    print('Beginning hit ratio calculation...')
+    # Find the uniqe users that are in the test set
+    unique_test_users = sorted(test_edge_index[0,:].unique().tolist())
+
+    # Take sample of users that we will calculate hit ratios for... can't do this for 240,000
+    test_users_sample = random.sample(unique_test_users, sample_size)
+
+    hit_ratios = []
+    hit_ratio_weights = []
+    # For each user, sample and calculate hit ratio
+    for idx, user_id in enumerate(test_users_sample):
+        if (idx+1) % 100 == 0:
+            print(f'Percent complete: {100.0 * (idx+1) / len(test_users_sample)}%')
+        # User embedding
+        user_embedding = embeddings[user_id]
+        #print(user_embedding)
+
+        # Find the test set users that they are actually connected to
+        existing_connections = test_edge_index[1, test_edge_index[0] == user_id].tolist()
+        #print(existing_connections)
+        hit_ratio_weights.append(min(len(existing_connections), 10))
+
+        # Construct a sample of the embedding matrix
+        # Generate a pool of random integers between (excluding the existing connections)
+        pool = set(range(min(unique_test_users), max(unique_test_users)+1)) - set(existing_connections)
+
+        # Sample 3 distinct user ids from the pool
+        sampled_users = existing_connections + random.sample(pool, 1000-len(existing_connections))
+        #print(sampled_users)
+
+        # Sample embeddings
+        sample_embeddings = embeddings[sampled_users]
+        # print(sample_embeddings)
+        # print(sample_embeddings.size())
+
+        # Compute edge scores between user id and the other sampled users
+        user_scores = torch.matmul(user_embedding, sample_embeddings.t())
+        # print(user_scores)
+        # print(user_scores.size())
+
+        # Find the top 10 indices
+        top_10_indices = torch.argsort(user_scores, descending=True)[0:10].tolist()
+        #print(top_10_indices)
+
+        # Find the users that the top 10 indices corresponds to
+        top_10_users = [sampled_users[idx] for idx in top_10_indices]
+        #print(top_10_users)
+
+        # Extend the hit list to include results for this user
+        hit_list = [1 if user in existing_connections else 0 for user in top_10_users]
+        #print(hit_list)
+
+        # Calculate hit ratio (percentage of actual edges that were located in top 10 indices)
+        hit_ratio = sum(hit_list) / min(len(hit_list), len(existing_connections))
+        hit_ratios.append(hit_ratio)
+
+    # print(hit_ratios)
+    # print(hit_ratio_weights)
+    # Weighted final hit ratio
+    weighted_hit_ratio = np.sum((np.array(hit_ratios) * np.array(hit_ratio_weights))) / np.sum(hit_ratio_weights)
+
+    return float(weighted_hit_ratio)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ========== Adjusting scoring (pairwise node similarity = the edge score) to be MLP / NN instead of just using dot product ==========
 # import torch.nn as nn

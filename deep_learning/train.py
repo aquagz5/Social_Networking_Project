@@ -12,7 +12,8 @@ import sys
 # User parameters
 preprocessing_dir = './deep_learning/preprocessing'
 model_name ='GCNLinkPrediction' # Swap out with any other model class/name we try (needs to be in model_dict below)
-output_model_directory = f'./deep_learning/models'
+output_model_directory = './deep_learning/models'
+evaluation_dir = './deep_learning/evaluation'
 index_cols = ['user_id']
 model_name_dict = {
     'GCNLinkPrediction':GCNLinkPrediction
@@ -26,7 +27,7 @@ standardization_dict = {
 
 # Model hyperparameters
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-epochs = 10
+epochs = 7
 #batch_size = 64
 learning_rate = 0.01
 #momentum = 0.9
@@ -87,6 +88,10 @@ data.test_edge_index=test_edge_index
 # print(index[0:20])
 # print(data.x)
 # print(data.edge_index)
+
+# Save the test set so that we can calculate hit ratio later in predict.py
+torch.save(data.test_edge_index, f=f'{evaluation_dir}/test_edge_list.pt')
+
 print(data.train_edge_index.size())
 print(data.val_edge_index.size())
 print(data.test_edge_index.size())
@@ -99,7 +104,9 @@ model = model_class(input_dim=data.x.shape[1], output_dim=25).to(device=device)
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 # Define a function to perform link prediction training
+train_losses = []
 def train_loop(model, optimizer, data):
+    global train_losses
     model.train()
 
     # Forward pass through model
@@ -123,8 +130,13 @@ def train_loop(model, optimizer, data):
     optimizer.step()
     optimizer.zero_grad()
 
+    train_losses.append(loss.item())
+
 # Define test loop using positive test edges
+validation_losses = []
 def test_loop(model, data):
+    global validation_losses
+
     model.eval()
 
     with torch.no_grad():
@@ -141,6 +153,7 @@ def test_loop(model, data):
 
         # Compute BCE loss
         loss = compute_loss(pos_pred, neg_pred)  # Compute loss
+        validation_losses.append(loss.item())
         print(f'Validation loss: {loss}')
 
 for i in range(epochs):
@@ -170,8 +183,19 @@ with torch.no_grad():
     neg_pred = score_edges(node_embeddings, neg_edge_index)
 
     # Compute BCE loss
-    loss = compute_loss(pos_pred, neg_pred)  # Compute loss
-    print(f'Test loss: {loss}')
+    test_loss = compute_loss(pos_pred, neg_pred).item()  # Compute loss
+    print(f'Test loss: {test_loss}')
+
+################## Save loss list ######################
+########################################################
+df_losses = pd.DataFrame({
+    'epoch':[i+1 for i in range(epochs)],
+    'train_loss':train_losses,
+    'validation_losses':validation_losses,
+    'test_loss':[test_loss for i in range(epochs)]
+})
+
+df_losses.to_csv(f'{evaluation_dir}/{model_name}_loss.csv', header=True, index=False)
 
 ################## Save model ##########################
 ########################################################
