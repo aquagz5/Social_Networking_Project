@@ -67,7 +67,7 @@ def split_edges(edge_index, train_ratio=0.65, val_ratio=0.20):
     num_val = int(num_edges * val_ratio)
 
     # Randomly permute edges
-    indices = np.random.permutation(num_edges)
+    indices = np.random.RandomState(seed=42).permutation(num_edges)
 
     # Create sets
     train_indices = indices[:num_train]

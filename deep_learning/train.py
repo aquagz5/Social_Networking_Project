@@ -6,17 +6,36 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 import joblib
 from data_prep import UserIdMapper, create_torch_data_object, split_edges
 import sys
+import argparse
+
+#command line arguments for parameters
+parser = argparse.ArgumentParser(description='Train and evaluate a GCN link prediction model.')
+parser.add_argument('--dropout', type=float, default=0.3, help='Dropout probability (default: 0.3)')
+parser.add_argument('--hidden_dim', type=int, default=100, help='Hidden dimension size (default: 100)')
+parser.add_argument('--num_layers', type=int, default=1, help='Number of GCN layers (default: 1)')
+parser.add_argument('--weight_decay', type=float, default=0, help='Weight decay for regularization (default: 0)')
+parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate (default: 0.01)')
+parser.add_argument('--counter', type=int, default=1, help='Number of training epochs (default: 1)')
+args = parser.parse_args()
+
+# Extract command-line arguments
+dropout = args.dropout
+hidden_dim = args.hidden_dim
+num_layers = args.num_layers
+weight_decay = args.weight_decay
+learning_rate = args.learning_rate
+counter = args.counter
 
 ############ Set user/model parameters ################
 ########################################################
 # User parameters
-preprocessing_dir = './deep_learning/preprocessing'
-model_name ='GCNLinkPrediction' # Swap out with any other model class/name we try (needs to be in model_dict below)
-output_model_directory = './deep_learning/models'
-evaluation_dir = './deep_learning/evaluation'
+preprocessing_dir = '../deep_learning/preprocessing'
+model_name =f'GCNLinkPrediction{counter}' # Swap out with any other model class/name we try (needs to be in model_dict below)
+output_model_directory = '../deep_learning/models'
+evaluation_dir = '../deep_learning/evaluation'
 index_cols = ['user_id']
 model_name_dict = {
-    'GCNLinkPrediction':GCNLinkPrediction
+    f'GCNLinkPrediction{counter}':GCNLinkPrediction
 }
 # Note: robust scaler still has a lot of large values after scaling (ex: some are -0.1, some are 557.1). Not sure if this would cause problems with gradient descent, maybe just minmax would be better???
 standardization_dict = {
@@ -26,23 +45,26 @@ standardization_dict = {
 }
 
 # Model hyperparameters
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = "cpu"
 epochs = 7
 #batch_size = 64
-learning_rate = 0.01
+learning_rate = learning_rate
 #momentum = 0.9
+
+#Empty cache prior to training model
+#torch.cuda.empty_cache()
 
 ################## Gather data #########################
 # Note: Right now, not splitting into train/val/test yet.
 # Just want to know that the code works correctly for training.
 # Splitting may require using 'train_mask', 'val_mask', etc. that I haven't figured out yet.
 ########################################################
-print('Gathering data...')
+print('Gathering data...',file=sys.stderr)
 
 # Read in
-df_edges = pd.read_parquet('./data/edges_double.parquet')
-df_node_features = pd.read_parquet('./data/node_attributes.parquet')
-print('Data read.')
+df_edges = pd.read_parquet('../data/edges_double.parquet')
+df_node_features = pd.read_parquet('../data/node_attributes.parquet')
+print('Data read.',file=sys.stderr)
 
 # Convert user hash to an ID
 unique_user_in_edges = df_edges['source'].unique().sort()
@@ -57,7 +79,7 @@ df_edges['source'] = df_edges['source'].apply(user_id_mapper.transform)
 df_edges['target'] = df_edges['target'].apply(user_id_mapper.transform)
 df_node_features['user_id'] = df_node_features['user_id'].apply(user_id_mapper.transform)
 # Save this dictionary to use in predict.py
-user_id_mapper.save_dict('./deep_learning/preprocessing/user_to_id.pkl')
+user_id_mapper.save_dict('../deep_learning/preprocessing/user_to_id.pkl')
 
 # Apply standardization to node features
 # Note: Does this need to change after data splitting?? We are masking edges not nodes...
@@ -78,6 +100,7 @@ joblib.dump(minmax_scaler, f'{preprocessing_dir}/minmax_scaler.pkl')
 # Create PTGeo Data object
 # This will require sorting the df_node_features by user id integer inside of this function
 index, data = create_torch_data_object(df_edges=df_edges, df_node_features=df_node_features, index_cols=index_cols)
+data = data.to(device)
 
 # Split edge indices into train and test sets
 train_edge_index, val_edge_index, test_edge_index = split_edges(data.edge_index)
@@ -92,16 +115,19 @@ data.test_edge_index=test_edge_index
 # Save the test set so that we can calculate hit ratio later in predict.py
 torch.save(data.test_edge_index, f=f'{evaluation_dir}/test_edge_list.pt')
 
-print(data.train_edge_index.size())
-print(data.val_edge_index.size())
-print(data.test_edge_index.size())
+print(data.train_edge_index.size(),file=sys.stderr)
+print(data.val_edge_index.size(),file=sys.stderr)
+print(data.test_edge_index.size(),file=sys.stderr)
 
 ################## Train model #########################
 ########################################################
 # Instantiate model
 model_class = model_name_dict[model_name]
-model = model_class(input_dim=data.x.shape[1], output_dim=25).to(device=device)
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+model = model_class(input_dim=data.x.shape[1], output_dim=25, num_layers=num_layers,hidden_dim=hidden_dim, p_dropout = dropout).to(device=device)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay = weight_decay)
+
+print(f"dropout = {dropout}, hidden_dim = {hidden_dim}, num_layers = {num_layers}, weight_decay = {weight_decay}, learning_rate = {learning_rate}, counter = {counter}",file=sys.stderr)
+
 
 # Define a function to perform link prediction training
 train_losses = []
@@ -123,7 +149,7 @@ def train_loop(model, optimizer, data):
 
     # Compute BCE loss
     loss = compute_loss(pos_pred, neg_pred)  # Compute loss
-    print(f'Training loss: {loss}')
+    print(f'Training loss: {loss}',file=sys.stderr)
 
     # Backpropagation
     loss.backward()
@@ -154,20 +180,20 @@ def test_loop(model, data):
         # Compute BCE loss
         loss = compute_loss(pos_pred, neg_pred)  # Compute loss
         validation_losses.append(loss.item())
-        print(f'Validation loss: {loss}')
+        print(f'Validation loss: {loss}',file=sys.stderr)
 
 for i in range(epochs):
-    print(f'===== Epoch {i} ======================================================================================')
+    print(f'===== Epoch {i} ======================================================================================',file=sys.stderr)
     # Run the train loop
     # data should contain node features (data.x) and edge indices (data.edge_index)
     train_loop(model=model, optimizer=optimizer, data=data)
     test_loop(model=model, data=data)
 
-print(f"Training complete\n")
+print(f"Training complete\n",file=sys.stderr)
 
 ################## Loss on test set ####################
 ########################################################
-print("Evaluating performance on test set...")
+print("Evaluating performance on test set...",file=sys.stderr)
 model.eval()
 
 with torch.no_grad():
@@ -184,7 +210,7 @@ with torch.no_grad():
 
     # Compute BCE loss
     test_loss = compute_loss(pos_pred, neg_pred).item()  # Compute loss
-    print(f'Test loss: {test_loss}')
+    print(f'Test loss: {test_loss}',file=sys.stderr)
 
 ################## Save loss list ######################
 ########################################################
@@ -201,7 +227,7 @@ df_losses.to_csv(f'{evaluation_dir}/{model_name}_loss.csv', header=True, index=F
 ########################################################
 try:
     torch.save(model, f'{output_model_directory}/{model_name}.pth')
-    print('Model successfully saved')
+    print('Model successfully saved',file=sys.stderr)
 except:
-    print(f'Error saving model\n')
+    print(f'Error saving model\n',file=sys.stderr)
     raise

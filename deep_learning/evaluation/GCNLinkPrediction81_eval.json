@@ -1,0 +1,1 @@
+{"model": "GCNLinkPrediction81", "max_test_set_friend_count": 811, "num_test_set_users": 203702, "hit_ratio_sample_size": 10000, "hit_ratio": 0.15723938223938225, "Hyperparameters": {"dropout": 0.3, "hidden_dim": 300, "num_layers": 2, "weight_decay": 0.0, "learning_rate": 0.01, "counter": 81}}

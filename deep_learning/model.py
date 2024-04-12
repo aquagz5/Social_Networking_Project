@@ -4,19 +4,39 @@ import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 import random
 import numpy as np
+import sys
 
 class GCNLinkPrediction(nn.Module):
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, num_layers=2,hidden_dim=100, p_dropout = 0.3):
         super(GCNLinkPrediction, self).__init__()
-        self.conv1 = GCNConv(input_dim, 100)
-        self.conv2 = GCNConv(100, output_dim)
+        self.num_layers = num_layers
+        self.hidden_dim = hidden_dim
+        self.p_dropout = p_dropout
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        
+        if num_layers == 1:
+            self.conv1 = GCNConv(input_dim, hidden_dim)
+        else:
+            #start with one layer
+            self.convs = torch.nn.ModuleList([GCNConv(input_dim, hidden_dim)])
+            #add layer if there are more than one extra layer
+            for _ in range(num_layers - 1):
+                self.convs.append(GCNConv(hidden_dim, hidden_dim))
+            self.conv_out = GCNConv(hidden_dim, output_dim)
+
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, p=0.3, training=self.training)
-        x = self.conv2(x, edge_index)
+       
+        if self.num_layers == 1:
+            x = self.conv1(x, edge_index)
+        else:
+            for conv in self.convs:
+                x = conv(x, edge_index)
+                x = F.relu(x)
+                x = F.dropout(x,p=self.p_dropout, training = self.training)
+
         x = F.normalize(x, p=2, dim=1) # Normalize node embeddings
         return x
 
@@ -34,7 +54,7 @@ def compute_loss(pos_pred, neg_pred):
     return loss
 
 def hit_ratio(embeddings, test_edge_index, sample_size=10000):
-    print('Beginning hit ratio calculation...')
+    print('Beginning hit ratio calculation...',file=sys.stderr)
     # Find the uniqe users that are in the test set
     unique_test_users = sorted(test_edge_index[0,:].unique().tolist())
 
@@ -46,7 +66,7 @@ def hit_ratio(embeddings, test_edge_index, sample_size=10000):
     # For each user, sample and calculate hit ratio
     for idx, user_id in enumerate(test_users_sample):
         if (idx+1) % 100 == 0:
-            print(f'Percent complete: {100.0 * (idx+1) / len(test_users_sample)}%')
+            print(f'Percent complete: {100.0 * (idx+1) / len(test_users_sample)}%',file=sys.stderr)
         # User embedding
         user_embedding = embeddings[user_id]
         #print(user_embedding)
