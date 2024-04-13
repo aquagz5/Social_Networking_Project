@@ -63,13 +63,14 @@ def hit_ratio(embeddings, test_edge_index, sample_size=10000):
 
     hit_ratios = []
     hit_ratio_weights = []
+    max_hit_ratio = 0
     # For each user, sample and calculate hit ratio
     for idx, user_id in enumerate(test_users_sample):
         if (idx+1) % 100 == 0:
             print(f'Percent complete: {100.0 * (idx+1) / len(test_users_sample)}%',file=sys.stderr)
         # User embedding
         user_embedding = embeddings[user_id]
-        #print(user_embedding)
+        #print(user_id)
 
         # Find the test set users that they are actually connected to
         existing_connections = test_edge_index[1, test_edge_index[0] == user_id].tolist()
@@ -86,13 +87,13 @@ def hit_ratio(embeddings, test_edge_index, sample_size=10000):
 
         # Sample embeddings
         sample_embeddings = embeddings[sampled_users]
-        # print(sample_embeddings)
-        # print(sample_embeddings.size())
+        #print(sample_embeddings)
+        #print(sample_embeddings.size())
 
         # Compute edge scores between user id and the other sampled users
         user_scores = torch.matmul(user_embedding, sample_embeddings.t())
-        # print(user_scores)
-        # print(user_scores.size())
+        #print(user_scores)
+        #print(user_scores.size())
 
         # Find the top 10 indices
         top_10_indices = torch.argsort(user_scores, descending=True)[0:10].tolist()
@@ -105,12 +106,22 @@ def hit_ratio(embeddings, test_edge_index, sample_size=10000):
         # Extend the hit list to include results for this user
         hit_list = [1 if user in existing_connections else 0 for user in top_10_users]
         #print(hit_list)
+        
+        #print list if greater than 80%
+        if sum(hit_list) >=8:
+            print(user_id_mapper.get_original_user(user_id))
+            for user_id in top_10_users:
+                print(user_id_mapper.get_original_user(user_id))
+            print(hit_list)
+            top_scores, _ = torch.topk(user_scores, k=10, dim=0)
+            print(top_scores)
+
 
         # Calculate hit ratio (percentage of actual edges that were located in top 10 indices)
         hit_ratio = sum(hit_list) / min(len(hit_list), len(existing_connections))
         hit_ratios.append(hit_ratio)
 
-    # print(hit_ratios)
+    #print(hit_ratios)
     # print(hit_ratio_weights)
     # Weighted final hit ratio
     weighted_hit_ratio = np.sum((np.array(hit_ratios) * np.array(hit_ratio_weights))) / np.sum(hit_ratio_weights)
